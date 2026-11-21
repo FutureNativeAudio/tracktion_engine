@@ -92,6 +92,12 @@ public:
     */
     virtual bool canScanPluginsOutOfProcess()                                       { return false; }
 
+    /** The longest the out-of-process plugin scan waits for one plugin's description, in milliseconds.
+        0 (the default) waits without limit, as before. A plugin that shows a window (a licence or
+        activation dialog) while it is created never answers in the scan process; with a limit the
+        scan logs it, kills that scan process and moves on to the next plugin. */
+    virtual int getPluginScanTimeoutMs()                                            { return 0; }
+
     //==============================================================================
     // Playback settings
 
