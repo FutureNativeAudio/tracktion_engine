@@ -67,6 +67,7 @@ struct PluginScanMasterProcess  : private juce::ChildProcessCoordinator
       #endif
 
         auto start = juce::Time::getCurrentTime();
+        const int timeoutMs = engine.getEngineBehaviour().getPluginScanTimeoutMs();
 
         for (;;)
         {
@@ -79,6 +80,17 @@ struct PluginScanMasterProcess  : private juce::ChildProcessCoordinator
                 if (crashed)
                 {
                     TRACKTION_LOG_ERROR ("Plugin crashed:  " + fileOrIdentifier);
+                    return false;
+                }
+
+                if (timeoutMs > 0 && elapsed.inMilliseconds() > timeoutMs)
+                {
+                    // no answer: the plugin is most likely waiting on a window nobody can see. Drop this scan
+                    // process (the next plugin gets a fresh one) and report this one as failed, without a retry.
+                    TRACKTION_LOG_ERROR ("Plugin scan timed out after " + juce::String (timeoutMs) + " ms: " + fileOrIdentifier);
+                    timedOut = true;
+                    crashed = true;
+                    killWorkerProcess();
                     return false;
                 }
 
@@ -131,7 +143,7 @@ struct PluginScanMasterProcess  : private juce::ChildProcessCoordinator
         crashed = true;
     }
 
-    volatile bool launched = false, crashed = false;
+    volatile bool launched = false, crashed = false, timedOut = false;
 
 private:
     Engine& engine;
@@ -316,7 +328,8 @@ struct CustomScanner  : public juce::KnownPluginList::CustomScanner
 
                     // if there's a crash, give it a second chance with a fresh child process,
                     // in case the real culprit was whatever plugin preceded this one.
-                    if (masterProcess != nullptr && masterProcess->crashed && ! shouldAbortScan())
+                    // (not after a time-out: that plugin would only wait again)
+                    if (masterProcess != nullptr && masterProcess->crashed && ! masterProcess->timedOut && ! shouldAbortScan())
                     {
                         masterProcess.reset();
                         masterProcess = std::make_unique<PluginScanMasterProcess> (engine);
